@@ -32,9 +32,7 @@ cp .env.example .env
 ```
 
 Required environment variables:
-- `GOOGLE_API_KEY`: Your Google API key for the Gemini model
-- `MMT_EMAIL`: Your MakeMyTrip account email (for flight booking)
-- `MMT_PASSWORD`: Your MakeMyTrip account password
+- `GOOGLE_API_KEY`: Your Google API key for the Gemini model'
 - `BROWSER_USER_DATA_DIR`: (Optional) Path to Chrome user profile directory
 
 ## Usage
@@ -65,8 +63,6 @@ python run_task.py "find Python tutorials on YouTube"
 ```bash
 python run_task.py "book flight from Mumbai to Delhi on 2025-10-28"
 ```
-
-Note: Flight booking requires valid MMT_EMAIL and MMT_PASSWORD in your .env file.
 
 ## Troubleshooting
 
