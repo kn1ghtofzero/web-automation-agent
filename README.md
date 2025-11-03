@@ -7,7 +7,7 @@ TalkToWeb is a Python-based automation tool that lets you control your browser u
 - 🗣️ Voice or text input for commands
 - 🤖 AI-powered command understanding using Google's Gemini model
 - 🌐 Automated web navigation, form filling, and clicking
-- ✈️ Specialized support for flight booking on MakeMyTrip
+- ✈️ Specialized support for flight booking on Google flights
 - 📸 Screenshot capability (coming soon)
 
 ## Setup
