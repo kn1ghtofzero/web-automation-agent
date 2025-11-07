@@ -34,9 +34,7 @@ cp .env.example .env
 ```
 
 Required environment variables:
-- `GOOGLE_API_KEY`: Your Google API key for the Gemini model
-- `MMT_EMAIL`: Your MakeMyTrip account email (for flight booking)
-- `MMT_PASSWORD`: Your MakeMyTrip account password
+- `GOOGLE_API_KEY`: Your Google API key for the Gemini model'
 - `BROWSER_USER_DATA_DIR`: (Optional) Path to Chrome user profile directory
 
 ## Usage
@@ -69,12 +67,15 @@ python run_task.py "book flight from Mumbai to Delhi on 2025-11-10"
 python run_task.py "search for flights from NYC to London tomorrow"
 ```
 
+<<<<<<< HEAD
 4. Play YouTube Video:
 ```bash
 python run_task.py "play Python programming tutorial"
 python run_task.py "watch funny cat videos on youtube"
 ```
 
+=======
+>>>>>>> ff102f67a02e038b5f9e540c63372cb440e6c615
 ## Troubleshooting
 
 1. Voice Input Issues
