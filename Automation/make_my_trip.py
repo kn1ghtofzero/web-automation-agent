@@ -255,11 +255,12 @@ class FlightBookingHandler:
             
             # Wait for suggestions to appear - use contextual locator
             print("⏳ Waiting for autocomplete suggestions...")
-            await self.page.wait_for_timeout(1000)
+            # Wait for network activity to settle after typing
+            await self.page.wait_for_load_state('networkidle', timeout=5000)
+            await self.page.wait_for_timeout(500)
             
             # Find the suggestions listbox that is contextually related to this input
-            # The suggestions appear near the input field, look for nearest listbox
-            suggestions = self._get_contextual_suggestions(departure_input)
+            suggestions = await self._get_contextual_suggestions(departure_input)
             
             try:
                 await expect(suggestions).to_be_visible(timeout=5000)
@@ -280,13 +281,15 @@ class FlightBookingHandler:
                     await first_option.click()
                     await self.page.wait_for_timeout(1000)
                 
-                # Verify the selection was successful
+                # Verify the selection was successful with an assertion
                 await self.page.wait_for_timeout(1000)  # Wait for UI to update
-                input_value = await departure_input.input_value()
-                if input_value:
-                    print(f"✅ Verified departure city set to: {input_value}")
-                else:
-                    print(f"⚠️ Warning: departure city input appears empty")
+                try:
+                    city_core = re.escape(from_city.split(',')[0].split('(')[0].strip())
+                    await expect(departure_input).to_have_value(re.compile(city_core, re.IGNORECASE), timeout=5000)
+                    print("✅ Verified departure city updated correctly")
+                except Exception:
+                    input_value = await departure_input.input_value()
+                    print(f"⚠️ Departure value after selection: '{input_value}' (could not assert)")
                 
             except Exception as e:
                 print(f"⚠️ Suggestions handling failed: {str(e)}")
@@ -364,10 +367,12 @@ class FlightBookingHandler:
             
             # Wait for suggestions to appear - use contextual locator
             print("⏳ Waiting for autocomplete suggestions...")
-            await self.page.wait_for_timeout(1000)
+            # Wait for network activity to settle after typing
+            await self.page.wait_for_load_state('networkidle', timeout=5000)
+            await self.page.wait_for_timeout(500)
             
             # Find the suggestions listbox that is contextually related to this input
-            suggestions = self._get_contextual_suggestions(destination_input)
+            suggestions = await self._get_contextual_suggestions(destination_input)
             
             try:
                 await expect(suggestions).to_be_visible(timeout=5000)
@@ -388,14 +393,16 @@ class FlightBookingHandler:
                     await first_option.click()
                     await self.page.wait_for_timeout(1000)
                 
-                # Verify the selection was successful
+                # Verify the selection was successful with an assertion
                 await self.page.wait_for_timeout(1000)  # Wait for UI to update
-                input_value = await destination_input.input_value()
-                if input_value:
-                    print(f"✅ Verified destination city set to: {input_value}")
-                else:
-                    print(f"⚠️ Warning: destination city input appears empty")
-                
+                try:
+                    city_core = re.escape(to_city.split(',')[0].split('(')[0].strip())
+                    await expect(destination_input).to_have_value(re.compile(city_core, re.IGNORECASE), timeout=5000)
+                    print("✅ Verified destination city updated correctly")
+                except Exception:
+                    input_value = await destination_input.input_value()
+                    print(f"⚠️ Destination value after selection: '{input_value}' (could not assert)")
+            
             except Exception as e:
                 print(f"⚠️ Suggestions handling failed: {str(e)}")
                 # Screenshot for debugging
@@ -412,7 +419,7 @@ class FlightBookingHandler:
             print("📸 Screenshot saved: destination_error.png")
             raise
 
-    def _get_contextual_suggestions(self, input_field) -> str:
+    async def _get_contextual_suggestions(self, input_field) -> str:
         """
         Get a contextual locator for suggestions that are related to a specific input field.
         
@@ -426,13 +433,36 @@ class FlightBookingHandler:
         # Strategy: Look for listbox elements, but scope them to be near the input
         # The suggestions appear in a listbox that is typically a sibling or in a nearby container
         
-        # First try to find listbox as a sibling or in the same container
-        parent = input_field.locator('xpath=..').first  # Get parent element
-        listbox = parent.locator('[role="listbox"]').first
-        
-        # If that doesn't work, we'll fall back to the visible listbox with options
-        # We'll filter by checking if it's visible and not empty
-        return listbox
+        # 1) Use ARIA relationships if available (most robust)
+        try:
+            controls_id = None
+            try:
+                controls_id = self.page.sync_info()  # dummy to ensure page available
+            except Exception:
+                pass
+            controls_id = None
+            try:
+                controls_id = await input_field.get_attribute('aria-controls')
+            except Exception:
+                controls_id = None
+            if not controls_id:
+                try:
+                    controls_id = await input_field.get_attribute('aria-owns')
+                except Exception:
+                    controls_id = None
+            if controls_id:
+                candidate = self.page.locator(f"#{controls_id}")
+                return candidate
+        except Exception:
+            pass
+
+        # 2) Fallback: visible listbox with options
+        try:
+            visible_listboxes = self.page.locator('[role="listbox"]').filter(has=self.page.locator('[role="option"]'))
+            return visible_listboxes.first
+        except Exception:
+            # Last resort: any listbox
+            return self.page.locator('[role="listbox"]').first
     
     async def _select_city_from_suggestions(self, city_name: str, suggestions_container) -> bool:
         """
@@ -511,42 +541,83 @@ class FlightBookingHandler:
             
             # Parse date for different format needs
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            formatted_full = date_obj.strftime("%B %d, %Y")  # e.g. "January 15, 2024"
-            formatted_short = date_obj.strftime("%b %d, %Y") # e.g. "Jan 15, 2024"
+            formatted_date = date_obj.strftime("%m/%d/%Y")  # MM/DD/YYYY format
             day = str(date_obj.day)
-            month = str(date_obj.month)
+            month_num = str(date_obj.month)
             year = str(date_obj.year)
+            month_name = date_obj.strftime("%B")
             
-            # Try multiple selectors to find date input
-            date_selectors = [
-                'input[placeholder*="Departure" i]',
-                'input[aria-label*="Departure" i]',
-                'button[aria-label*="Departure" i]',
-                'div[role="button"][aria-label*="date" i]',
-                '[data-testid*="date"]',
-                '[class*="date-input"]',
-                '[class*="datepicker"]'
+            # Google Flights specific selectors
+            date_input_selectors = [
+                '[aria-label="Departure date"]',
+                '[placeholder*="Departure date"]',
+                '[aria-label="Departure"]',
+                'input[type="text"][aria-label*="Departure"]',
+                '[role="textbox"][aria-label*="Departure"]'
             ]
             
             print("🔍 Looking for date input...")
-            for selector in date_selectors:
+            
+            # First try: Direct input of the date
+            for selector in date_input_selectors:
                 try:
                     date_input = self.page.locator(selector).first
                     if await date_input.is_visible():
                         print(f"✓ Found date input with selector: {selector}")
                         
-                        # Try to click and open the date picker
+                        # Clear any overlays first
+                        await self._dismiss_dialogs()
+                        await self.page.wait_for_timeout(500)
+                        
+                        # Click to focus and clear the field
+                        await date_input.click()
+                        await date_input.fill("")
+                        await self.page.wait_for_timeout(500)
+                        
+                        # Try typing the date with keyboard
+                        for char in formatted_date:
+                            await date_input.type(char, delay=100)
+                        await self.page.wait_for_timeout(500)
+                        await self.page.keyboard.press("Enter")
+                        await self.page.wait_for_timeout(1000)
+                        
+                        # Check if the date was accepted
+                        input_value = await date_input.input_value()
+                        if formatted_date in input_value or date_str in input_value:
+                            print(f"✓ Date set successfully via direct input: {formatted_date}")
+                            return True
+                            
+                        # If direct input didn't work, try opening the calendar
                         await date_input.click()
                         await self.page.wait_for_timeout(1000)
                         
-                        # Try different calendar cell selectors
-                        calendar_selectors = [
-                            f'[aria-label*="{formatted_full}"]',
-                            f'[aria-label*="{formatted_short}"]',
+                        # Wait for calendar to be visible
+                        calendar = self.page.locator('[role="dialog"], [role="application"]').filter(has=self.page.locator('[role="grid"]'))
+                        await calendar.wait_for(timeout=5000)
+                        
+                        # Navigate to correct month if needed
+                        current_month = self.page.locator('[aria-live="polite"], [jsname="lmcIF"]').first
+                        current_text = await current_month.text_content() or ""
+                        target_month = f"{month_name} {year}"
+                        
+                        print(f"Navigating to month: {target_month}")
+                        while target_month not in current_text:
+                            if date_obj > datetime.now():
+                                await self.page.locator('button[aria-label*="Next month"], [jsname="VOEIyf"]').click()
+                            else:
+                                await self.page.locator('button[aria-label*="Previous month"], [jsname="Bg6qfe"]').click()
+                            await self.page.wait_for_timeout(500)
+                            current_text = await current_month.text_content() or ""
+                        
+                        # Try to click the date using various selectors
+                        date_selectors = [
+                            f'[jsname="gHtaPd"]:has-text("{day}")',  # Google Flights specific
+                            f'[aria-label*="{month_num}/{day}/{year}"]',
                             f'td[role="gridcell"]:has-text("{day}")',
                             f'button:has-text("{day}")',
                             f'[data-value="{date_str}"]',
-                            f'[data-date="{date_str}"]'
+                            f'[data-date="{date_str}"]',
+                            f'[jsname*="date"][aria-label*="{day}"]'
                         ]
                         
                         # Try each calendar selector
@@ -613,19 +684,38 @@ class FlightBookingHandler:
                 except Exception:
                     continue
             
-            # If all attempts fail, try to input the date directly
+            # If calendar selection fails, try direct input methods
             for selector in date_selectors:
                 try:
                     input_element = self.page.locator(selector).first
                     if await input_element.is_visible():
-                        await input_element.fill(date_str)
+                        # Try MM/DD/YYYY format
+                        formatted_date = date_obj.strftime("%m/%d/%Y")
+                        await input_element.fill(formatted_date)
+                        await self.page.wait_for_timeout(1000)
                         await self.page.keyboard.press('Enter')
-                        print(f"✓ Entered date directly: {date_str}")
-                        return True
-                except Exception:
+                        await self.page.wait_for_timeout(1000)
+                        
+                        # If that didn't work, try YYYY-MM-DD format
+                        if not await self._verify_date_selected(date_str):
+                            await input_element.fill(date_str)
+                            await self.page.wait_for_timeout(1000)
+                            await self.page.keyboard.press('Enter')
+                            await self.page.wait_for_timeout(1000)
+                            
+                        if await self._verify_date_selected(date_str):
+                            print(f"✓ Entered date directly: {date_str}")
+                            return True
+                except Exception as e:
+                    print(f"⚠️ Direct input failed: {str(e)}")
                     continue
             
             print("⚠️ Could not set date. The calendar interface may have changed.")
+            try:
+                await self.page.screenshot(path='date_selection_failed.png')
+                print("📸 Screenshot saved for debugging")
+            except:
+                pass
             return False
             
         except Exception as e:
@@ -676,40 +766,58 @@ class FlightBookingHandler:
                         await self._dismiss_dialogs()
                         await self.page.wait_for_timeout(500)
                         
-                        # Try multiple click strategies
+                        # Try resilient click strategies without force=True
                         click_success = False
                         
-                        # 1. Try regular click
+                        # 1. Ensure button is actionable (visible, enabled, not obscured)
                         try:
-                            await button.click()
+                            # Wait for button to be in actionable state
+                            await expect(button).to_be_visible(timeout=5000)
+                            await expect(button).to_be_enabled(timeout=5000)
+                            
+                            # Scroll into view to ensure visibility
+                            await button.scroll_into_view_if_needed()
+                            await self.page.wait_for_timeout(500)
+                            
+                            # Check if button is covered by overlay
+                            is_covered = await button.evaluate('''
+                                element => {
+                                    const rect = element.getBoundingClientRect();
+                                    const centerX = rect.left + rect.width / 2;
+                                    const centerY = rect.top + rect.height / 2;
+                                    const topElement = document.elementFromPoint(centerX, centerY);
+                                    return !element.contains(topElement) && topElement !== element;
+                                }
+                            ''')
+                            
+                            if is_covered:
+                                print("⚠️ Button is covered by overlay, attempting to dismiss...")
+                                await self._dismiss_dialogs()
+                                await self.page.wait_for_timeout(1000)
+                            
+                            # Try regular click with timeout
+                            await button.click(timeout=10000)
                             click_success = True
                             print("✓ Clicked search button (regular click)")
+                            
                         except Exception as e:
                             print(f"Regular click failed: {e}")
                             
-                            # 2. Try force click
+                            # 2. Try clicking via JavaScript (more reliable for dynamic pages)
                             try:
-                                await button.click(force=True)
+                                await button.evaluate('element => element.click()')
                                 click_success = True
-                                print("✓ Clicked search button (force click)")
+                                print("✓ Clicked search button (JavaScript click)")
                             except Exception as e:
-                                print(f"Force click failed: {e}")
+                                print(f"JavaScript click failed: {e}")
                                 
-                                # 3. Try JavaScript click
+                                # 3. Try dispatch click event
                                 try:
-                                    await button.evaluate('element => element.click()')
+                                    await button.dispatch_event('click')
                                     click_success = True
-                                    print("✓ Clicked search button (JavaScript click)")
+                                    print("✓ Clicked search button (dispatch event)")
                                 except Exception as e:
-                                    print(f"JavaScript click failed: {e}")
-                                    
-                                    # 4. Try dispatch event
-                                    try:
-                                        await button.dispatch_event('click')
-                                        click_success = True
-                                        print("✓ Clicked search button (dispatch event)")
-                                    except Exception as e:
-                                        print(f"Event dispatch failed: {e}")
+                                    print(f"Event dispatch failed: {e}")
                         
                         if click_success:
                             # Wait for navigation or loading indicator

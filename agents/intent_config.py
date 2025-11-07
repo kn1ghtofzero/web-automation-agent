@@ -89,10 +89,16 @@ CITY_MAPPING = {
 WEBSITE_CONFIGS = {
     'youtube': {
         'search_selector': "input[name='search_query']",
-        'first_video_selector': "ytd-video-renderer:first-child a#thumbnail",
+        'first_video_selector': "ytd-video-renderer a#video-title[href*='watch']:not([href*='shorts'])",
     },
     'google': {
         'search_selector': "textarea[name='q']",
+    },
+    'wikipedia': {
+        'search_selector': "#searchInput",
+    },
+    'wikipedia.org': {
+        'search_selector': "#searchInput",
     },
     'amazon': {
         'search_selector': "input[name='field-keywords']",

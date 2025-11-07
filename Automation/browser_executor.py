@@ -61,6 +61,7 @@ async def execute_actions(actions_data: List[Dict[str, Any]]) -> None:
         except Exception as e:
             print(f"❌ Error launching browser: {str(e)}")
             raise
+        
 
         # Get the first page in the context or create a new one
         page = await browser_context.new_page()
@@ -75,16 +76,34 @@ async def execute_actions(actions_data: List[Dict[str, Any]]) -> None:
                         print(f"🌍 Navigating to {action.value}")
                         await page.goto(action.value, wait_until='domcontentloaded')
                         
-                        # Handle YouTube consent if needed
+                        # Handle YouTube consent and search results
                         if "youtube.com" in action.value:
                             try:
+                                # Wait for page load
                                 await page.wait_for_load_state("domcontentloaded")
-                                consent = page.locator('button:has-text("Accept all")')
-                                if await consent.is_visible():
-                                    await consent.click()
+                                await page.wait_for_load_state("networkidle")
+                                
+                                # Handle consent if present
+                                try:
+                                    consent = page.locator('button:has-text("Accept all")')
+                                    if await consent.is_visible():
+                                        await consent.click()
+                                        await page.wait_for_timeout(1000)
+                                except Exception:
+                                    pass  # Consent dialog might not appear
+                                
+                                # If it's the main page, wait for search box
+                                if action.value == "https://www.youtube.com":
+                                    search_selectors = ['input#search', 'input[name="search_query"]']
+                                    for selector in search_selectors:
+                                        try:
+                                            await page.wait_for_selector(selector, state='visible', timeout=3000)
+                                            break
+                                        except Exception:
+                                            continue
                             except Exception as e:
-                                print(f"Note: YouTube consent handling: {e}")
-
+                                print(f"Note: YouTube page handling: {e}")
+                                
                     elif action.action == "fill":
                         print(f"⌨️ Filling {action.selector} with '{action.value}'")
                         locator = page.locator(action.selector)
@@ -93,9 +112,136 @@ async def execute_actions(actions_data: List[Dict[str, Any]]) -> None:
 
                     elif action.action == "click":
                         print(f"🖱️ Clicking {action.selector}")
-                        locator = page.locator(action.selector)
-                        await expect(locator).to_be_visible(timeout=10000)
-                        await locator.click()
+                        
+                        # Special handling for YouTube video clicks
+                        if "youtube.com" in await page.url() and ("ytd-video-renderer" in action.selector or "video-title" in action.selector):
+                            try:
+                                # Handle possible consent banners broadly
+                                try:
+                                    consent_buttons = page.locator("button:has-text('Accept all'), button:has-text('I agree'), button:has-text('Accept'), #introAgreeButton")
+                                    if await consent_buttons.first.is_visible():
+                                        await consent_buttons.first.click()
+                                        await page.wait_for_timeout(1000)
+                                except Exception:
+                                    pass
+
+                                # Wait for network to be idle to ensure results are loaded
+                                print("⏳ Waiting for search results to load...")
+                                await page.wait_for_load_state("networkidle", timeout=20000)
+                                
+                                # Results on YouTube can be dynamic; wait for results containers
+                                containers = [
+                                    "#contents ytd-video-renderer",
+                                    "ytd-search #contents ytd-video-renderer",
+                                    "ytd-two-column-search-results-renderer #contents ytd-video-renderer",
+                                    "#contents ytd-rich-item-renderer",
+                                ]
+                                found_container = False
+                                for container in containers:
+                                    try:
+                                        await page.wait_for_selector(container, state="visible", timeout=20000)
+                                        found_container = True
+                                        print(f"✅ Found results container: {container}")
+                                        break
+                                    except Exception:
+                                        continue
+                                if not found_container:
+                                    print("❌ YouTube results did not load in time")
+                                    raise Exception("YouTube search results not found")
+                                
+                                # Wait a bit more for dynamic content to settle
+                                await page.wait_for_timeout(2000)
+                                
+                                # Iterate visible results, skip ads and shorts, click first real video
+                                clicked = False
+                                try:
+                                    results = page.locator("ytd-video-renderer")
+                                    count = await results.count()
+                                    print(f"📋 Found {count} video results")
+                                    
+                                    for idx in range(count):
+                                        item = results.nth(idx)
+                                        
+                                        # Wait for item to be visible
+                                        try:
+                                            await item.wait_for(state="visible", timeout=5000)
+                                        except Exception:
+                                            continue
+                                        
+                                        # Detect ad markers within this item
+                                        ad_marker = item.locator(
+                                            "ytd-badge-supported-renderer:has-text('Ad'), "
+                                            "#badge:has-text('Ad'), "
+                                            "[aria-label='Ad'], "
+                                            "ytd-ad-slot-renderer, "
+                                            "ytd-display-ad-renderer"
+                                        )
+                                        try:
+                                            if await ad_marker.first.is_visible(timeout=1000):
+                                                print(f"⏭️ Skipping ad at index {idx}")
+                                                continue
+                                        except Exception:
+                                            pass
+
+                                        # Prefer title link to ensure watch page
+                                        link = item.locator("a#video-title[href*='watch']:not([href*='shorts'])").first
+                                        try:
+                                            if await link.is_visible(timeout=2000):
+                                                await link.scroll_into_view_if_needed()
+                                                # Wait for element to be stable before clicking
+                                                await page.wait_for_timeout(500)
+                                                await link.click()
+                                                print(f"✅ Clicked first non-ad video at index {idx}")
+                                                clicked = True
+                                                break
+                                        except Exception:
+                                            pass
+
+                                        # Fallback to thumbnail link
+                                        thumb = item.locator("ytd-thumbnail a[href*='watch']:not([href*='shorts'])").first
+                                        try:
+                                            if await thumb.is_visible(timeout=2000):
+                                                await thumb.scroll_into_view_if_needed()
+                                                await page.wait_for_timeout(500)
+                                                await thumb.click()
+                                                print(f"✅ Clicked thumbnail of first non-ad video at index {idx}")
+                                                clicked = True
+                                                break
+                                        except Exception:
+                                            pass
+                                            
+                                except Exception as e:
+                                    print(f"⚠️ Error while iterating YouTube results: {e}")
+                                    
+                                if not clicked:
+                                    # Fallback: focus first renderer and press Enter
+                                    try:
+                                        candidate = page.locator("ytd-video-renderer").first
+                                        await candidate.scroll_into_view_if_needed()
+                                        await candidate.focus()
+                                        await page.keyboard.press("Enter")
+                                        print("↩️ Pressed Enter on first video renderer")
+                                        clicked = True
+                                    except Exception:
+                                        print("❌ Could not find any clickable YouTube video element")
+                                        raise Exception("Failed to click any video")
+                                
+                                if clicked:
+                                    # Wait for navigation to watch page
+                                    try:
+                                        await page.wait_for_url(lambda url: "watch?v=" in url, timeout=20000)
+                                        print("✅ Successfully navigated to video page")
+                                    except Exception:
+                                        print("⚠️ Video may have opened, but URL check timed out")
+                                        
+                            except Exception as e:
+                                print(f"❌ Failed to click YouTube video: {str(e)}")
+                                raise
+                        else:
+                            # Normal click handling
+                            locator = page.locator(action.selector)
+                            await expect(locator).to_be_visible(timeout=10000)
+                            await locator.click()
 
                     elif action.action == "press":
                         print(f"🔑 Pressing {action.key} on {action.selector}")
@@ -145,9 +291,10 @@ async def execute_actions(actions_data: List[Dict[str, Any]]) -> None:
             input()  # Wait for user input before closing
             
         finally:
-            # Only close if not already closed
-            if not browser_context.is_closed():
+            try:
                 await browser_context.close()
+            except Exception as e:
+                print(f"Note: Browser closing: {str(e)}")
 
 
 if __name__ == "__main__":

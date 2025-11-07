@@ -110,7 +110,7 @@ def handle_play(command: str, entities: Dict[str, Any]) -> List[Dict[str, Any]]:
         {"action": "goto", "value": WEBSITE_MAP['youtube']},
         {"action": "fill", "selector": config['search_selector'], "value": search_term},
         {"action": "press", "selector": config['search_selector'], "key": "Enter"},
-        {"action": "wait", "timeout": 3000},
+        {"action": "wait", "timeout": 3000},  # Wait for search to initiate
         {"action": "click", "selector": config['first_video_selector']}
     ]
 

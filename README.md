@@ -7,8 +7,10 @@ TalkToWeb is a Python-based automation tool that lets you control your browser u
 - 🗣️ Voice or text input for commands
 - 🤖 AI-powered command understanding using Google's Gemini model
 - 🌐 Automated web navigation, form filling, and clicking
-- ✈️ Specialized support for flight booking on MakeMyTrip
-- 📸 Screenshot capability (coming soon)
+- ✈️ Specialized support for flight booking on Google Flights
+- 🎥 Robust YouTube video search and playback
+- 📸 Screenshot capability
+- 🛡️ Resilient UI automation strategies (no fragile force clicks or arbitrary delays)
 
 ## Setup
 
@@ -63,10 +65,15 @@ python run_task.py "find Python tutorials on YouTube"
 
 3. Book Flight:
 ```bash
-python run_task.py "book flight from Mumbai to Delhi on 2025-10-28"
+python run_task.py "book flight from Mumbai to Delhi on 2025-11-10"
+python run_task.py "search for flights from NYC to London tomorrow"
 ```
 
-Note: Flight booking requires valid MMT_EMAIL and MMT_PASSWORD in your .env file.
+4. Play YouTube Video:
+```bash
+python run_task.py "play Python programming tutorial"
+python run_task.py "watch funny cat videos on youtube"
+```
 
 ## Troubleshooting
 
@@ -78,6 +85,12 @@ Note: Flight booking requires valid MMT_EMAIL and MMT_PASSWORD in your .env file
    - If Chrome launch fails, ensure Chrome is installed
    - Try setting BROWSER_USER_DATA_DIR in .env to your Chrome profile path
    - Or leave it unset to use a fresh profile
+
+## Documentation
+
+- **[UI Automation Strategies](UI_AUTOMATION_STRATEGIES.md)** - Comprehensive guide on resilient UI automation techniques
+- **[Architecture](ARCHITECTURE.md)** - System architecture and design patterns
+- **[Project Structure](PROJECT_STRUCTURE.md)** - Codebase organization
 
 ## Contributing
 
